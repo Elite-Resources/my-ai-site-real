@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trend AI - Browser LLM</title>
+    <style>
+        :root {
+            --bg-color: #050505;
+            --text-color: #e0e0e0;
+            --accent-color: #00f2ff;
+            --secondary-color: #1a1a1a;
+            --warning-color: #ffcc00;
+            --font-main: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #app {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            max-width: 900px;
+            margin: 0 auto;
+            width: 100%;
+            padding: 20px;
+        }
+
+        /* Header / Warning Box */
+        .warning-box {
+            background: rgba(255, 204, 0, 0.1);
+            border: 1px solid var(--warning-color);
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+            color: var(--warning-color);
+            text-align: center;
+        }
+
+        /* Loading UI */
+        #loading-overlay {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .loader-title {
+            font-size: 1.5rem;
+            font-weight: 300;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--accent-color);
+        }
+
+        .progress-container {
+            width: 100%;
+            max-width: 400px;
+            height: 4px;
+            background: var(--secondary-color);
+            border-radius: 2px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #progress-bar {
+            height: 100%;
+            width: 0%;
+            background: var(--accent-color);
+            box-shadow: 0 0 15px var(--accent-color);
+            transition: width 0.3s ease;
+        }
+
+        #status-text {
+            font-size: 0.8rem;
+            color: #888;
+            margin-top: 10px;
+        }
+
+        /* Chat UI */
+        #chat-interface {
+            display: none;
+            flex-direction: column;
+            flex: 1;
+            overflow: hidden;
+            border: 1px solid var(--secondary-color);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        #chat-history {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            line-height: 1.5;
+            font-size: 0.95rem;
+        }
+
+        .user-message {
+            align-self: flex-end;
+            background: var(--accent-color);
+            color: #000;
+        }
+
+        .ai-message {
+            align-self: flex-start;
+            background: var(--secondary-color);
+            color: var(--text-color);
+            border: 1px solid #333;
+        }
+
+        .input-area {
+            padding: 20px;
+            display: flex;
+            gap: 10px;
+            border-top: 1px solid var(--secondary-color);
+        }
+
+        #user-input {
+            flex: 1;
+            background: transparent;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 12px;
+            color: var(--text-color);
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        #user-input:focus {
+            border-color: var(--accent-color);
+        }
+
+        #send-btn {
+            background: var(--accent-color);
+            color: #000;
+            border: none;
+            padding: 0 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: opacity 0.3s;
+        }
+
+        #send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="warning-box">
+            Al primo avvio verranno scaricati circa 1.5GB nella cache del tuo browser. Funzionerà localmente e gratuitamente per sempre.
+        </div>
+
+        <div id="loading-overlay">
+            <h1 class="loader-title">Inizializzazione AI</h1>
+            <div class="progress-container">
+                <div id="progress-bar"></div>
+            </div>
+            <div id="status-text">Sto scaricando i pesi del modello...</div>
+        </div>
+
+        <div id="chat-interface">
+            <div id="chat-history"></div>
+            <div class="input-area">
+                <input type="text" id="user-input" placeholder="Chiedimi qualcosa..." autocomplete="off">
+                <button id="send-btn">Invia</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { CreateWebWorkerEngine } from "https://esm.sh/@mlc-ai/web-llm";
+
+        const modelId = "gemma-2b-it-q4f16_1-MLC";
+        
+        const progressBar = document.getElementById('progress-bar');
+        const statusText = document.getElementById('status-text');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const chatInterface = document.getElementById('chat-interface');
+        const chatHistory = document.getElementById('chat-history');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+
+        let engine;
+
+        async function init() {
+            try {
+                // Callback per monitorare il progresso del caricamento
+                const initProgressCallback = (report) => {
+                    const progress = Math.round(report.progress * 100);
+                    progressBar.style.width = `${progress}%`;
+                    statusText.innerText = report.text;
+                    
+                    if (progress >= 100) {
+                        setTimeout(() => {
+                            loadingOverlay.style.display = 'none';
+                            chatInterface.style.display = 'flex';
+                            addMessage("IA", "Ciao! Sono pronto ad aiutarti localmente. Cosa desideri sapere?");
+                        }, 500);
+                    }
+                };
+
+                // Caricamento del motore in un Web Worker per non bloccare la UI
+                engine = await CreateWebWorkerEngine(
+                    new Worker(
+                        new URL("https://esm.sh/@mlc-ai/web-llm/dist/worker.js", import.meta.url),
+                        { type: "module" }
+                    ),
+                    modelId,
+                    { initProgressCallback }
+                );
+
+            } catch (error) {
+                console.error(error);
+                statusText.innerText = "Errore durante il caricamento: " + error.message;
+                statusText.style.color = "#ff4444";
+            }
+        }
+
+        function addMessage(sender, text) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${sender === 'User' ? 'user-message' : 'ai-message'}`;
+            msgDiv.innerText = text;
+            chatHistory.appendChild(msgDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        async function handleSend() {
+            const text = userInput.value.trim();
+            if (!text || !engine) return;
+
+            userInput.value = '';
+            addMessage("User", text);
+            
+            // Crea il contenitore per la risposta dell'IA
+            const aiMsgDiv = document.createElement('div');
+            aiMsgDiv.className = 'message ai-message';
+            aiMsgDiv.innerText = "...";
+            chatHistory.appendChild(aiMsgDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+
+            sendBtn.disabled = true;
+
+            try {
+                const chunks = await engine.chat.completions.create({
+                    messages: [{ role: "user", content: text }],
+                    stream: true,
+                });
+
+                let fullText = "";
+                for await (const chunk of chunks) {
+                    const content = chunk.choices[0]?.delta?.content || "";
+                    fullText += content;
+                    aiMsgDiv.innerText = fullText;
+                    chatHistory.scrollTop = chatHistory.scrollHeight;
+                }
+            } catch (error) {
+                console.error(error);
+                aiMsgDiv.innerText = "Si è verificato un errore durante la generazione.";
+            } finally {
+                sendBtn.disabled = false;
+                userInput.focus();
+            }
+        }
+
+        sendBtn.addEventListener('click', handleSend);
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleSend();
+        });
+
+        // Avvia l'inizializzazione
+        init();
+    </script>
+</body>
+</html>
